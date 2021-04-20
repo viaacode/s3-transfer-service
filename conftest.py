@@ -13,5 +13,5 @@ def disable_network_calls(monkeypatch):
 
     monkeypatch.setattr(requests, "head", lambda *args, **kwargs: stunted_head())
     monkeypatch.setattr(
-        paramiko.SSHClient, "connect", lambda *args, **kwargs: stunted_head()
+        paramiko.SSHClient, "connect", lambda *args, **kwargs: stunted_ssh_connect()
     )

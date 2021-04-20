@@ -9,7 +9,7 @@ from viaa.configuration import ConfigParser
 from viaa.observability import logging
 
 from app.helpers.message_parser import parse_validate_json, InvalidMessageException
-from app.helpers.transfer import TransferPartException, TransferException, transfer
+from app.helpers.transfer import TransferPartException, TransferException, Transfer
 from app.services.rabbit import RabbitClient
 
 
@@ -53,7 +53,7 @@ class EventListener:
 
         # Start the transfer
         try:
-            transfer(message)
+            Transfer(message).transfer()
         except (TransferPartException, TransferException, OSError):
             self.log.error("Transfer failed")
             cb_nack = functools.partial(self.nack_message, channel, delivery_tag)

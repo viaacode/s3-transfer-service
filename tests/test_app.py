@@ -16,7 +16,7 @@ def event_listener(rabbit_client_mock):
 
 
 @patch("app.app.parse_validate_json", side_effect=InvalidMessageException("invalid"))
-@patch("app.app.transfer")
+@patch("app.app.Transfer")
 def test_do_work_invalid_message(transfer_mock, parse_mock, event_listener, caplog):
     event_listener.do_work(None, None, None)
     assert "invalid" in caplog.messages
