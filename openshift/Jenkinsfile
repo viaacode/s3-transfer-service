@@ -1,70 +1,196 @@
 pipeline {
     agent {
-      node {
-        // spin up a pod to run this build on
-        label 'docker'
-      }
+        kubernetes {
+            defaultContainer 'default'
+            yaml """\
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          labels:
+            component: builder
+            lang: python
+            app: s3-transfer-service
+        spec:
+          containers:
+          - name: default
+            image: ${getImageFromDockerfile()}
+            command:
+            - cat
+            tty: true
+          - name: oc
+            image: image-registry.openshift-image-registry.svc:5000/ci-cd/py:3.7
+            command:
+            - cat
+            tty: true
+            imagePullPolicy: Always
+        """.stripIndent()
+        }
     }
     options {
         timeout(time: 45, unit: 'MINUTES')
+        disableConcurrentBuilds()
     }
+    environment {
+        OC_PROJECT = 's3-components'
+        BASE_IMG = 'python:3.7'
+        OC_URL = 'https://c113-e.private.eu-de.containers.cloud.ibm.com:30227'
+        JIRA_URL = 'meemoo.atlassian.net'
+        APP_NAME = 's3-transfer-service'
+    }
+
     stages {
-        stage('Build docker image') {
+        stage('Calculate extra ENV vars') {
             steps {
-                sh 'make -f ./openshift/Makefile build'
+                script {
+                    env.GIT_SHORT_COMMIT = sh(script: "printf \$(git rev-parse --short ${GIT_COMMIT})", returnStdout: true)
+                    env.IMAGE_TAG = sh(script: 'git describe --tags || echo latest', returnStdout: true)
+                    // The name used for the build config based on the image tag
+                    // Replace '.' with '_' as '.' is not allowed.
+                    env.BUILD_CONFIG_NAME = sh(script: 'echo "${IMAGE_TAG}" | sed -r "s/\\./\\-/g"', returnStdout: true)
+                }
             }
         }
-        stage('Run tests in container') {
+        stage('Test code') {
             steps {
                 sh 'make -f ./openshift/Makefile test'
             }
         }
-        stage('Run linter in container') {
+        stage('Build code') {
+            when {
+                not {
+                    buildingTag()
+                }
+            }
             steps {
-                sh 'make -f ./openshift/Makefile lint'
+                container('oc') {
+                    script {
+                        sh '''#!/bin/bash
+                        login_oc.sh $OC_URL > /dev/null || echo ok
+                        oc project $OC_PROJECT
+                        oc import-image $BASE_IMG --confirm
+                        oc new-build -l ref=$BRANCH_NAME --strategy=docker --name $APP_NAME-$GIT_SHORT_COMMIT --to $APP_NAME:$GIT_SHORT_COMMIT --binary --context-dir="" || echo "Probably already exists, start new build"
+                        sleep 3
+                        oc annotate --overwrite buildconfig/$APP_NAME-$GIT_SHORT_COMMIT ref=$BRANCH_NAME shortcommit=$GIT_SHORT_COMMIT
+                        oc start-build $APP_NAME-$GIT_SHORT_COMMIT --from-dir=. --wait=true
+                        '''
+                    }
+                }
             }
         }
-        stage('Push to Docker repo') {
+        stage('Deploy INT') {
+            when {
+                anyOf {
+                    changeRequest target: 'master'
+                    changeRequest target: 'main'
+                }
+            }
             steps {
-                sh 'make -f ./openshift/Makefile push'
+                container('oc') {
+                    tagNewImage('int')
+                }
+            }
+            post {
+                always {
+                    script {
+                        env.BRANCH_NAME = env.CHANGE_BRANCH
+                    }
+                    jiraSendDeploymentInfo site: "${JIRA_URL}", environmentId: 'int', environmentName: 'int', environmentType: 'testing'
+                }
             }
         }
-        stage('Tag and deploy INT') {
+        stage('Deploy QAS') {
+            when {
+                anyOf { branch 'master'; branch 'main' }
+            }
             steps {
-                sh 'make -f ./openshift/Makefile deploy-int'
+                container('oc') {
+                    tagNewImage('qas')
+                }
+            }
+            post {
+                always {
+                    jiraSendDeploymentInfo site: "${JIRA_URL}", environmentId: 'qas', environmentName: 'qas', environmentType: 'staging'
+                }
             }
         }
-        stage('Test INT') {
-            steps {
-                sh 'make -f ./openshift/Makefile test-int'
+        stage('Deploy PRD') {
+            when {
+                buildingTag()
             }
-        }
-        stage('Tag and deploy qas') {
             steps {
-                sh 'make -f ./openshift/Makefile deploy-qas'
+                container('oc') {
+                    tagNewImage('prd')
+                }
             }
-        }
-        stage('Test QAS') {
-            steps {
-                sh 'make -f ./openshift/Makefile test-qas'
-            }
-        }
-        stage('Approve') {
-            steps {
-                input message: "Do you want to approve the deploy in production?", id: "approval"
-                sh 'make -f ./openshift/Makefile approved'
-            }
-        }
-        stage('Tag and deploy PRD') {
-            steps {
-                sh 'make -f ./openshift/Makefile deploy-prd'
+            post {
+                always {
+                    script {
+                        previous_tag = sh(script: 'git describe --abbrev=0 --tags `git rev-list --tags --skip=1 --max-count=1`', returnStdout: true).trim()
+                        echo getAllCommitsBetweenTags(previous_tag, env.TAG_NAME)
+                    }
+                    jiraSendDeploymentInfo site: "${JIRA_URL}", environmentId: 'prd', environmentName: 'prd', environmentType: 'production'
+                }
             }
         }
     }
     post {
+        success {
+            script {
+                if (env.BRANCH_NAME.startsWith('PR')) {
+                    setGitHubBuildStatus('Build', 'SUCCESS')
+                }
+            }
+        }
+        failure {
+            script {
+                if (env.BRANCH_NAME.startsWith('PR')) {
+                    setGitHubBuildStatus('Build', 'FAILURE')
+                }
+            }
+        }
         always {
-            sh 'make -f ./openshift/Makefile post-clean'
-            cleanWs()
+            jiraSendBuildInfo site: "${JIRA_URL}"
+            container('default') {
+                // Archive tets results
+                script {
+                    if (fileExists('./tests/test_results.xml')) {
+                        junit 'tests/test_results.xml'
+                    } else {
+                        echo 'No test results found'
+                    }
+                }
+            }
         }
     }
+}
+
+void getImageFromDockerfile() {
+    return 'python:3.7'
+}
+
+void setGitHubBuildStatus(String message, String state) {
+    step([
+        $class: 'GitHubCommitStatusSetter',
+        reposSource: [$class: 'ManuallyEnteredRepositorySource', url: "${GIT_URL}"],
+        commitShaSource: [$class: 'ManuallyEnteredShaSource', sha: "${GIT_COMMIT}"],
+        errorHandlers: [[$class: 'ChangingBuildStatusErrorHandler', result: 'UNSTABLE']],
+        statusResultSource: [ $class: 'ConditionalStatusResultSource', results: [[$class: 'AnyBuildResult', message: message, state: state]] ]
+    ])
+}
+
+void getAllCommitsBetweenTags(String from, String to) {
+    commit_messages = sh(script: "git log ${from}...${to} --merges --format=%b", returnStdout: true)
+
+    return commit_messages
+}
+
+void tagNewImage(String environment) {
+    echo "Deploying to ${environment}"
+    sh """#!/bin/bash
+    login_oc.sh $OC_URL > /dev/null || echo ok
+    oc project $OC_PROJECT
+    oc tag $APP_NAME:$GIT_SHORT_COMMIT $APP_NAME:${environment}
+    # Check the status of the rollout
+    oc rollout status deployment/$APP_NAME-${environment} --watch=true
+    """
 }
