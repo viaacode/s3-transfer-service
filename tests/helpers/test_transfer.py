@@ -197,7 +197,7 @@ class TestTransfer:
         transfer._prepare_target_transfer()
 
         sftp_mock.stat.assert_called_once_with("/s3-transfer-test/file.mxf")
-        sftp_mock.mkdir.assert_called_once_with("/s3-transfer-test/.file.mxf")
+        sftp_mock.mkdir.assert_called_once_with("/s3-transfer-test/file.mxf.part")
 
     def test__prepare_target_transfer_file_exists(self, transfer, caplog):
         """File already exist."""
@@ -225,7 +225,7 @@ class TestTransfer:
         transfer._prepare_target_transfer()
 
         assert sftp_mock.stat.call_count == 2
-        sftp_mock.mkdir.assert_called_once_with("/s3-transfer-test/.file.mxf")
+        sftp_mock.mkdir.assert_called_once_with("/s3-transfer-test/file.mxf.part")
 
     def test_prepare_target_transfer_folder_error(self, transfer, caplog):
         """File does not exist but tmp folder can't be created."""
@@ -241,10 +241,10 @@ class TestTransfer:
         log_record = caplog.records[0]
         assert log_record.level == "error"
         assert log_record.message == "Error occurred when creating tmp folder: error"
-        assert log_record.tmp_folder == "/s3-transfer-test/.file.mxf"
+        assert log_record.tmp_folder == "/s3-transfer-test/file.mxf.part"
 
         assert sftp_mock.stat.call_count == 2
-        sftp_mock.mkdir.assert_called_once_with("/s3-transfer-test/.file.mxf")
+        sftp_mock.mkdir.assert_called_once_with("/s3-transfer-test/file.mxf.part")
 
     @patch("app.helpers.transfer.Transfer._transfer_part")
     @patch("app.helpers.transfer.calculate_ranges", return_value=["0-1", "1-2"])
@@ -260,23 +260,23 @@ class TestTransfer:
             assert log_record.level == "debug"
 
         assert (
-            "Thread started for: /s3-transfer-test/.file.mxf/file.mxf.part0"
+            "Thread started for: /s3-transfer-test/file.mxf.part/file.mxf.part0"
             in caplog.messages
         )
         assert (
-            "Thread started for: /s3-transfer-test/.file.mxf/file.mxf.part1"
+            "Thread started for: /s3-transfer-test/file.mxf.part/file.mxf.part1"
             in caplog.messages
         )
 
         assert transfer_part_mock.call_count == 2
         call_args = [call_args.args for call_args in transfer_part_mock.call_args_list]
         assert (
-            "/s3-transfer-test/.file.mxf/file.mxf.part1",
+            "/s3-transfer-test/file.mxf.part/file.mxf.part1",
             "1-2",
         ) in call_args
 
         assert (
-            "/s3-transfer-test/.file.mxf/file.mxf.part0",
+            "/s3-transfer-test/file.mxf.part/file.mxf.part0",
             "0-1",
         ) in call_args
 
@@ -306,7 +306,7 @@ class TestTransfer:
 
         # Check call of build assemble command
         build_assemble_command_mock.assert_called_once_with(
-            "/s3-transfer-test/.file.mxf", "file.mxf", 4
+            "/s3-transfer-test/file.mxf.part", "file.mxf", 4
         )
 
         # Check if build command has executed
@@ -314,7 +314,7 @@ class TestTransfer:
 
         # Check if changed into tmp dir
         sftp_mock.chdir.assert_called_once_with(
-            "/s3-transfer-test/.file.mxf",
+            "/s3-transfer-test/file.mxf.part",
         )
         # Check if tmp file is correct size
         sftp_mock.stat.assert_called_once_with(
@@ -323,7 +323,7 @@ class TestTransfer:
 
         # Check if tmp file renamed
         sftp_mock.rename.assert_called_once_with(
-            "/s3-transfer-test/.file.mxf/file.mxf.tmp", "/s3-transfer-test/file.mxf"
+            "/s3-transfer-test/file.mxf.part/file.mxf.tmp", "/s3-transfer-test/file.mxf"
         )
 
         # Check if touch command has been executed
@@ -338,7 +338,7 @@ class TestTransfer:
 
         # Check if tmp dir has been removed
         sftp_mock.rmdir.assert_called_once_with(
-            "/s3-transfer-test/.file.mxf",
+            "/s3-transfer-test/file.mxf.part",
         )
 
         # Check logged message
@@ -484,7 +484,7 @@ class TestTransfer:
         assert transfer.dest_folder_dirname == "/s3-transfer-test"
         assert transfer.dest_file_basename == "file.mxf"
         assert transfer.dest_file_tmp_basename == "file.mxf.tmp"
-        assert transfer.dest_folder_tmp_dirname == "/s3-transfer-test/.file.mxf"
+        assert transfer.dest_folder_tmp_dirname == "/s3-transfer-test/file.mxf.part"
         assert transfer.source_url == "http://url/bucket/file.mxf"
         assert transfer.size_in_bytes == 0
 

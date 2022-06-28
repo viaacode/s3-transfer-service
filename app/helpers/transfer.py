@@ -138,7 +138,7 @@ class Transfer:
         self.dest_file_basename = os.path.basename(self.destination_path)
 
         self.dest_file_tmp_basename = f"{self.dest_file_basename}.tmp"
-        dest_folder_tmp_basename = f".{self.dest_file_basename}"
+        dest_folder_tmp_basename = f"{self.dest_file_basename}.part"
         self.dest_folder_tmp_dirname = os.path.join(
             self.dest_folder_dirname, dest_folder_tmp_basename
         )
