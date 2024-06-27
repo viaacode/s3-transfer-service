@@ -42,6 +42,7 @@ pipeline {
         stage('Calculate extra ENV vars') {
             steps {
                 script {
+                    sh 'git config --global --add safe.directory "*"'
                     env.GIT_SHORT_COMMIT = sh(script: "printf \$(git rev-parse --short ${GIT_COMMIT})", returnStdout: true)
                     env.IMAGE_TAG = sh(script: 'git describe --tags || echo latest', returnStdout: true)
                     // The name used for the build config based on the image tag
