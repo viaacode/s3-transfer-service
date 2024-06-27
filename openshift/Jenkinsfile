@@ -32,7 +32,7 @@ pipeline {
     }
     environment {
         OC_PROJECT = 's3-components'
-        BASE_IMG = 'python:3.8'
+        BASE_IMG = 'python:3.10'
         OC_URL = 'https://c113-e.private.eu-de.containers.cloud.ibm.com:30227'
         JIRA_URL = 'meemoo.atlassian.net'
         APP_NAME = 's3-transfer-service'
@@ -164,7 +164,7 @@ pipeline {
 }
 
 void getImageFromDockerfile() {
-    return 'python:3.8'
+    return 'python:3.10'
 }
 
 void setGitHubBuildStatus(String message, String state) {
