@@ -9,7 +9,7 @@ from viaa.configuration import ConfigParser
 from viaa.observability import logging
 
 from app.helpers.message_parser import parse_validate_json, InvalidMessageException
-from app.helpers.transfer import TransferPartException, TransferException, Transfer
+from app.helpers.transfer import TransferException, Transfer
 from app.services.rabbit import RabbitClient
 
 
@@ -54,7 +54,7 @@ class EventListener:
         # Start the transfer
         try:
             Transfer(message).transfer()
-        except (TransferPartException, TransferException, OSError):
+        except (TransferException, OSError):
             self.log.error("Transfer failed")
             cb_nack = functools.partial(self.nack_message, channel, delivery_tag)
             self.rabbit_client.connection.add_callback_threadsafe(cb_nack)
@@ -91,7 +91,7 @@ class EventListener:
         self.threads.append(thread)
 
     def exit_gracefully(self, signum, frame):
-        """Stop consuming queue but finish current tasks/messages. """
+        """Stop consuming queue but finish current tasks/messages."""
         self.log.info(
             "Received SIGTERM. Waiting for last transfer to finish and then stops."
         )
