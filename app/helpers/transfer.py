@@ -239,7 +239,7 @@ class Transfer:
             err = stderr.readlines()
             if err:
                 log.error(
-                    f"Error occurred when cURLing file: {err}",
+                    f"Error occurred when cURLing tmp file: {err}",
                     destination=self.dest_file_tmp_full,
                 )
                 raise TransferException
@@ -249,24 +249,24 @@ class Transfer:
                     status_code = results[0]
                     if int(status_code) >= 400:
                         log.error(
-                            f"Error occurred when cURLing file with status code: {status_code}",
+                            f"Error occurred when cURLing tmp file with status code: {status_code}",
                             destination=self.dest_file_tmp_full,
                         )
                         raise TransferException
                     log.info(
-                        "Successfully cURLed file",
+                        "Successfully cURLed tmp file",
                         destination=self.dest_file_tmp_full,
                         results=results,
                     )
                 except IndexError as i_e:
                     log.error(
-                        f"Error occurred cURLing file: {i_e}",
+                        f"Error occurred cURLing tmp file: {i_e}",
                         destination=self.dest_file_tmp_full,
                     )
                     raise TransferException
         except SSHException as ssh_e:
             log.error(
-                f"SSH Error occurred when cURLing file: {ssh_e}",
+                f"SSH Error occurred when cURLing tmp file: {ssh_e}",
                 destination=self.dest_file_tmp_full,
             )
             raise TransferException
@@ -279,27 +279,51 @@ class Transfer:
                 log.error(
                     f"Size of transferred tmp file: {file_attrs.st_size}, expected size: {self.size_in_bytes}",
                     source_url=self.source_url,
-                    destination_basename=self.self.dest_file_tmp_full_basename,
+                    destination=self.dest_file_tmp_full,
                 )
                 raise TransferException
+        except OSError as os_e:
+            log.error(
+                f"Error occurred when checking size of transferred tmp file: {os_e}",
+                tmp_filename=self.dest_file_tmp_full,
+            )
+            raise TransferException
+
+        try:
             # Rename and move file destination folder
             self.sftp.rename(
                 self.dest_file_tmp_full,
                 self.destination_path,
             )
-            # Touch the file so MH picks it up
-            # Explicitly use a `SSH touch` as `SFTP utime` doesn't work
-            self.remote_client.exec_command(f"touch '{self.destination_path}'")
-
-            # Delete the tmp folder
-            self.sftp.rmdir(self.dest_folder_tmp_dirname)
-            log.info("File successfully transferred", destination=self.destination_path)
         except OSError as os_e:
             log.error(
                 f"Error occurred when renaming tmp file: {os_e}",
+                tmp_filename=self.dest_file_tmp_full,
                 destination=self.destination_path,
             )
             raise TransferException
+
+        try:
+            # Touch the file so MH picks it up
+            # Explicitly use a `SSH touch` as `SFTP utime` doesn't work
+            self.remote_client.exec_command(f"touch '{self.destination_path}'")
+        except SSHException as ssh_e:
+            log.error(
+                f"SSH Error occurred when touching tmp file: {ssh_e}",
+                tmp_filename=self.dest_file_tmp_full,
+            )
+            raise TransferException
+        try:
+            # Delete the tmp folder
+            self.sftp.rmdir(self.dest_folder_tmp_dirname)
+        except OSError as os_e:
+            log.error(
+                f"Error occurred when removing tmp folder: {os_e}",
+                tmp_folder=self.dest_folder_tmp_dirname,
+            )
+            raise TransferException
+
+        log.info("File successfully transferred", destination=self.destination_path)
 
     @retry(TransferException, tries=3, delay=3, logger=log)
     def transfer(self):
