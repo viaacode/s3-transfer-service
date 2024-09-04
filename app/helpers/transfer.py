@@ -2,9 +2,7 @@
 # -*- coding: utf-8 -*-
 import os
 import shlex
-import threading
 import time
-from typing import List
 
 import requests
 from paramiko import AutoAddPolicy, SSHClient, SSHException
