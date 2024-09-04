@@ -17,7 +17,6 @@ config_parser = ConfigParser()
 config = config_parser.app_cfg
 log = logging.get_logger(__name__, config=config_parser)
 dest_conf = config["destination"]
-NUMBER_PARTS = 4
 
 
 class TransferException(Exception):
