@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from paramiko import SSHException
 
 from app.helpers.transfer import (
+    TransferSourceFileNotFoundException,
     build_curl_command,
     Transfer,
     TransferException,
@@ -22,6 +23,23 @@ def test_build_curl_command():
         curl_command
         == f"curl -w '{w_params}' -L -H 'host: {domain}' -S -s -o '{dest}' '{src}'"
     )
+
+
+def has_retries_in_logs(caplog: pytest.LogCaptureFixture) -> bool:
+    return any(
+        map(
+            lambda record: "retrying" in record.message,
+            caplog.records
+        )
+    )
+
+
+class MockChannelFile:
+    def __init__(self, lines: list[str]):
+        self.lines = lines
+
+    def readlines(self):
+        return [line for line in self.lines]
 
 
 class TestTransfer:
@@ -642,3 +660,87 @@ class TestTransfer:
         )
 
         assert transfer.size_in_bytes == 100
+
+    @patch.object(Transfer, "_init_remote_client")
+    @patch.object(Transfer, "_check_free_space")
+    @patch("requests.head")
+    def test_fetch_size_404_should_not_retry(
+        self,
+        head,
+        _check_free_space_mock,
+        _init_remote_client_mock,
+        transfer,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        head().status_code = 404
+
+        with pytest.raises(TransferSourceFileNotFoundException):
+            transfer.transfer()
+
+        assert not has_retries_in_logs(caplog)
+
+    @patch.object(Transfer, "_init_remote_client")
+    @patch.object(Transfer, "_check_free_space")
+    @patch("requests.head")
+    def test_fetch_size_no_content_length_should_retry(
+        self,
+        head,
+        _check_free_space_mock,
+        _init_remote_client_mock,
+        transfer,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        head().headers = {}
+
+        with pytest.raises(TransferException):
+            transfer.transfer()
+
+        assert has_retries_in_logs(caplog)
+
+    @patch.object(Transfer, "_init_remote_client")
+    @patch.object(Transfer, "_check_free_space")
+    @patch.object(Transfer, "_fetch_size")
+    @patch.object(Transfer, "_prepare_target_transfer")
+    def test_curl_404_should_not_retry(
+        self,
+        _prepare_target_transfer_mock,
+        _fetch_size_mock,
+        _check_free_space_mock,
+        _init_remote_client_mock,
+        transfer,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        transfer.remote_client.exec_command = lambda _: (
+            MockChannelFile([]),
+            MockChannelFile(["404,time: 0.222405s,size: 18373 bytes,speed: 82610b"]),
+            MockChannelFile([])
+        )
+
+        with pytest.raises(TransferSourceFileNotFoundException):
+            transfer.transfer()
+
+        assert not has_retries_in_logs(caplog)
+
+    @patch.object(Transfer, "_init_remote_client")
+    @patch.object(Transfer, "_check_free_space")
+    @patch.object(Transfer, "_fetch_size")
+    @patch.object(Transfer, "_prepare_target_transfer")
+    def test_curl_429_should_retry(
+        self,
+        _prepare_target_transfer_mock,
+        _fetch_size_mock,
+        _check_free_space_mock,
+        _init_remote_client_mock,
+        transfer,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        transfer.remote_client.exec_command = lambda _: (
+            MockChannelFile([]),
+            MockChannelFile(["429,time: 0.222405s,size: 18373 bytes,speed: 82610b"]),
+            MockChannelFile([])
+        )
+
+        with pytest.raises(TransferException):
+            transfer.transfer()
+
+        assert has_retries_in_logs(caplog)
