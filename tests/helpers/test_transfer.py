@@ -39,7 +39,7 @@ class MockChannelFile:
         self.lines = lines
 
     def readlines(self):
-        return [line for line in self.lines]
+        return self.lines.copy()
 
 
 class TestTransfer:

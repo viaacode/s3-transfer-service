@@ -114,7 +114,7 @@ class Transfer:
 
         Raises:
             TransferException: If it was not possible to get the size of the file.
-            TransferNotFoundException: If the request returned a 404 status code.
+            TransferSourceFileNotFoundException: If the request returned a 404 status code.
         """
 
         head_response = requests.head(
