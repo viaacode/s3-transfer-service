@@ -6,8 +6,7 @@ RUN addgroup --system appgroup && adduser --system appuser --ingroup appgroup
 WORKDIR /app
 
 # Let the appuser own the files so he can rwx during runtime.
-COPY . .
-RUN chown -R appuser:appgroup /app
+COPY --chown=appuser:appgroup . .
 
 # We install all our Python dependencies. Add the extra index url because some
 # packages are in the meemoo repo.
