@@ -26,12 +26,7 @@ def test_build_curl_command():
 
 
 def has_retries_in_logs(caplog: pytest.LogCaptureFixture) -> bool:
-    return any(
-        map(
-            lambda record: "retrying" in record.message,
-            caplog.records
-        )
-    )
+    return "retrying" in caplog.text
 
 
 class MockChannelFile:
@@ -710,10 +705,10 @@ class TestTransfer:
         transfer,
         caplog: pytest.LogCaptureFixture,
     ):
-        transfer.remote_client.exec_command = lambda _: (
+        transfer.remote_client.exec_command.return_value = (
             MockChannelFile([]),
             MockChannelFile(["404,time: 0.222405s,size: 18373 bytes,speed: 82610b"]),
-            MockChannelFile([])
+            MockChannelFile([]),
         )
 
         with pytest.raises(TransferSourceFileNotFoundException):
@@ -734,10 +729,10 @@ class TestTransfer:
         transfer,
         caplog: pytest.LogCaptureFixture,
     ):
-        transfer.remote_client.exec_command = lambda _: (
+        transfer.remote_client.exec_command.return_value = (
             MockChannelFile([]),
             MockChannelFile(["429,time: 0.222405s,size: 18373 bytes,speed: 82610b"]),
-            MockChannelFile([])
+            MockChannelFile([]),
         )
 
         with pytest.raises(TransferException):
