@@ -17,7 +17,6 @@ There is an optional free space check in which the remote server needs to have a
 - Docker (optional)
 - Python 3.10+
 - Access to the [meemoo PyPi](http://do-prd-mvn-01.do.viaa.be:8081)
-- Poetry
 
 ## Diagrams
 
@@ -44,17 +43,23 @@ There is an optional free space check in which the remote server needs to have a
     You can use `!ENV ${EXAMPLE}` as a config value to make the application get the `EXAMPLE` environment variable.
 
 ### Running locally
+
 1. Install the external modules:
 
-    `$ poetry install`
+    ```
+    $ pip install -r requirements.txt  \
+        --extra-index-url http://do-prd-mvn-01.do.viaa.be:8081/repository/pypi-all/simple \
+        --trusted-host do-prd-mvn-01.do.viaa.be && \
+      pip install -r requirements-dev.txt
+    ```
 
 2. Run the tests (and setting the values in `.env.example` first):
 
-    `$ export $(grep -v '^#' .env.example | xargs -0); poetry run pytest -v --cov=./app`
+    `$ env $(grep -oE '^[^([:space:]*#[:space:]*)]+' .env.example | xargs) python -m pytest -v --cov=./app`
 
 3. Run the application:
 
-    `$ poetry run python main.py`
+    `$ python main.py`
 
 ### Running using Docker
 
@@ -66,6 +71,6 @@ There is an optional free space check in which the remote server needs to have a
 
    `$ docker run --env-file .env.example --rm --entrypoint python s3-transfer-service:latest -m pytest -v --cov=./app`
 
-2. Run the container (with specified `.env` file):
+3. Run the container (with specified `.env` file):
 
    `$ docker run --env-file .env --rm s3-transfer-service:latest`

@@ -21,6 +21,10 @@ class TransferException(Exception):
     pass
 
 
+class TransferSourceFileNotFoundException(Exception):
+    pass
+
+
 def build_curl_command(destination: str, source_url: str, s3_domain: str) -> str:
     """Build the cURL command.
 
@@ -109,15 +113,24 @@ class Transfer:
             The size of the file in bytes.
 
         Raises:
-            TransferException: If it was not possible to get the size of the file,
-                e.g. a 404.
+            TransferException: If it was not possible to get the size of the file.
+            TransferSourceFileNotFoundException: If the request returned a 404 status code.
         """
 
-        size_in_bytes = requests.head(
+        head_response = requests.head(
             self.source_url,
             allow_redirects=True,
-            headers={"host": self.domain, "Accept-Encoding": "identity"},
-        ).headers.get("content-length", None)
+            headers={
+                "host": self.domain,
+                "Accept-Encoding": "identity"
+            },
+        )
+
+        status = head_response.status_code
+        if status == 404:
+            raise TransferSourceFileNotFoundException
+
+        size_in_bytes = head_response.headers.get("content-length", None)
 
         if not size_in_bytes:
             log.error(
@@ -125,7 +138,7 @@ class Transfer:
             )
             raise TransferException
 
-        return size_in_bytes
+        return int(size_in_bytes)
 
     def _check_free_space(self):
         """Check if there is sufficient free space on the remote server.
@@ -231,36 +244,47 @@ class Transfer:
         try:
             # Execute the cURL command and examine results
             _stdin, stdout, stderr = self.remote_client.exec_command(curl_cmd)
-            results = []
-            out = stdout.readlines()
+
             err = stderr.readlines()
-            if err:
+            if len(err) != 0:
                 log.error(
                     f"Error occurred when cURLing tmp file: {err}",
                     destination=self.dest_file_tmp_full,
                 )
                 raise TransferException
-            if out:
-                try:
-                    results = out[0].split(",")
-                    status_code = results[0]
-                    if int(status_code) >= 400:
-                        log.error(
-                            f"Error occurred when cURLing tmp file with status code: {status_code}",
-                            destination=self.dest_file_tmp_full,
-                        )
-                        raise TransferException
-                    log.info(
-                        "Successfully cURLed tmp file",
-                        destination=self.dest_file_tmp_full,
-                        results=results,
-                    )
-                except IndexError as i_e:
-                    log.error(
-                        f"Error occurred cURLing tmp file: {i_e}",
-                        destination=self.dest_file_tmp_full,
-                    )
-                    raise TransferException
+
+            out = stdout.readlines()
+            try:
+                results = out[0].split(",")
+                status_code = int(results[0])
+            except (IndexError, ValueError):
+                log.error(
+                    "Error occurred when cURLing tmp file: out is empty "
+                    "or has invalid content"
+                )
+                raise TransferException
+
+            if status_code == 404:
+                log.error(
+                    "Error occurred when cURLing tmp file: file not found,"
+                    f" status code: {status_code}"
+                )
+                raise TransferSourceFileNotFoundException
+
+            if status_code >= 400:
+                log.error(
+                    "Error occurred when cURLing tmp file: received status"
+                    f" code: {status_code}",
+                    destination=self.dest_file_tmp_full,
+                )
+                raise TransferException
+
+            log.info(
+                "Successfully cURLed tmp file",
+                destination=self.dest_file_tmp_full,
+                results=results,
+            )
+
         except SSHException as ssh_e:
             log.error(
                 f"SSH Error occurred when cURLing tmp file: {ssh_e}",
